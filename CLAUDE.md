@@ -51,6 +51,7 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
    - CRUD operations for todos/projects/areas
    - Search and tag operations
    - Things URL scheme integration
+   - Implements Someday project filtering to match Things UI behavior
 
 2. **url_scheme.py** - Things URL scheme implementation
    - Constructs Things URLs for various operations
@@ -65,6 +66,8 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
    - **conftest.py** - Pytest fixtures and mock data
    - **test_url_scheme.py** - Tests for URL construction (25 test cases)
    - **test_formatters.py** - Tests for data formatting (26 test cases)
+   - **test_someday_filtering.py** - Tests for Someday project filtering (8 test cases)
+   - **test_mcp_server_filtering.py** - Integration tests for MCP server filtering (5 test cases)
 
 ## Key Implementation Details
 
@@ -74,6 +77,7 @@ This is a Model Context Protocol (MCP) server that bridges Claude Desktop with t
 - All tools return formatted text strings suitable for Claude
 - Error handling for invalid UUIDs and missing parameters
 - Supports filtering and including nested items via parameters
+- **Someday Project Filtering**: Tasks from Someday projects are filtered out of Today, Upcoming, and Anytime views to match the Things UI behavior and reduce clutter
 - Unit tests mock all external dependencies (Things.py, AppleScript)
 - Pytest configuration in pyproject.toml with async support
 

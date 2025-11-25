@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Someday Project Filtering**: Tasks from Someday projects are now filtered out from Today, Upcoming, and Anytime views to match Things UI behavior
+- **Test Coverage**: Added 13 new tests for Someday filtering functionality
+
 ## v0.4.0 - 2025-08-18
 
 - **DXT Package Support**: Added automated DXT packaging system with build_dxt.sh script and manifest.json configuration

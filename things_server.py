@@ -6,11 +6,38 @@ from formatters import format_todo, format_project, format_area, format_tag
 import url_scheme
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server
 mcp = FastMCP("Things")
+
+# Helper function to filter out tasks from Someday projects
+def filter_someday_project_tasks(todos):
+    """Filter out tasks that belong to Someday projects.
+    
+    Args:
+        todos: List of todo dictionaries
+        
+    Returns:
+        Filtered list excluding tasks from Someday projects
+    """
+    filtered = []
+    for todo in todos:
+        # Check if todo has a parent project
+        if todo.get('project'):
+            try:
+                # Get the parent project
+                project = things.get(todo['project'])
+                # Skip this todo if its parent project is Someday
+                if project and project.get('status') == 'someday':
+                    continue
+            except Exception:
+                # If we can't get the project, include the todo
+                pass
+        # Include todos without projects or with non-Someday projects
+        filtered.append(todo)
+    return filtered
 
 # List view tools
 @mcp.tool
@@ -28,6 +55,10 @@ async def get_today() -> str:
     todos = things.today(include_items=True)
     if not todos:
         return "No items found"
+    # Filter out tasks from Someday projects
+    todos = filter_someday_project_tasks(todos)
+    if not todos:
+        return "No items found"
     formatted_todos = [format_todo(todo) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
 
@@ -37,6 +68,10 @@ async def get_upcoming() -> str:
     todos = things.upcoming(include_items=True)
     if not todos:
         return "No items found"
+    # Filter out tasks from Someday projects
+    todos = filter_someday_project_tasks(todos)
+    if not todos:
+        return "No items found"
     formatted_todos = [format_todo(todo) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
 
@@ -44,6 +79,10 @@ async def get_upcoming() -> str:
 async def get_anytime() -> str:
     """Get todos from Anytime list"""
     todos = things.anytime(include_items=True)
+    if not todos:
+        return "No items found"
+    # Filter out tasks from Someday projects
+    todos = filter_someday_project_tasks(todos)
     if not todos:
         return "No items found"
     formatted_todos = [format_todo(todo) for todo in todos]
