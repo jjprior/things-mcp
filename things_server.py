@@ -12,9 +12,13 @@ logger = logging.getLogger(__name__)
 # Initialize FastMCP server
 mcp = FastMCP("Things")
 
+
 # Helper function to filter out tasks from Someday projects
 def filter_someday_project_tasks(todos):
     """Filter out tasks that belong to Someday projects.
+    
+    This matches Things UI behavior where tasks from Someday projects
+    don't appear in Today, Upcoming, or Anytime views.
     
     Args:
         todos: List of todo dictionaries
@@ -38,6 +42,7 @@ def filter_someday_project_tasks(todos):
         # Include todos without projects or with non-Someday projects
         filtered.append(todo)
     return filtered
+
 
 # List view tools
 @mcp.tool
