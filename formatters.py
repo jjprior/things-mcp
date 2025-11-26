@@ -122,6 +122,7 @@ def format_todo(todo: dict) -> str:
     if isinstance(todo.get('checklist'), list):
         todo_text += "\nChecklist:"
         for item in todo['checklist']:
+            status = "✓" if item['status'] == 'completed' else "☐"
             todo_text += f"\n  {status} {item['title']}"
     
     return todo_text
