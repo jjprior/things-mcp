@@ -26,22 +26,14 @@ def filter_someday_project_tasks(todos):
     Returns:
         Filtered list excluding tasks from Someday projects
     """
-    # Cache project status to avoid repeated lookups for the same project
-    project_status_cache = {}
-    filtered = []
-    for todo in todos:
-        project_uuid = todo.get('project')
-        if project_uuid:
-            if project_uuid not in project_status_cache:
-                try:
-                    project = things.get(project_uuid)
-                    project_status_cache[project_uuid] = project.get('status') if project else None
-                except Exception:
-                    project_status_cache[project_uuid] = None
-            if project_status_cache[project_uuid] == 'someday':
-                continue
-        filtered.append(todo)
-    return filtered
+    # Single query to get all Someday project UUIDs
+    try:
+        someday_project_ids = {p['uuid'] for p in (things.projects(start='Someday') or [])}
+    except Exception:
+        return todos
+    if not someday_project_ids:
+        return todos
+    return [todo for todo in todos if todo.get('project') not in someday_project_ids]
 
 
 # List view tools
