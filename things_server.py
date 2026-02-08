@@ -16,30 +16,30 @@ mcp = FastMCP("Things")
 # Helper function to filter out tasks from Someday projects
 def filter_someday_project_tasks(todos):
     """Filter out tasks that belong to Someday projects.
-    
+
     This matches Things UI behavior where tasks from Someday projects
     don't appear in Today, Upcoming, or Anytime views.
-    
+
     Args:
         todos: List of todo dictionaries
-        
+
     Returns:
         Filtered list excluding tasks from Someday projects
     """
+    # Cache project status to avoid repeated lookups for the same project
+    project_status_cache = {}
     filtered = []
     for todo in todos:
-        # Check if todo has a parent project
-        if todo.get('project'):
-            try:
-                # Get the parent project
-                project = things.get(todo['project'])
-                # Skip this todo if its parent project is Someday
-                if project and project.get('status') == 'someday':
-                    continue
-            except Exception:
-                # If we can't get the project, include the todo
-                pass
-        # Include todos without projects or with non-Someday projects
+        project_uuid = todo.get('project')
+        if project_uuid:
+            if project_uuid not in project_status_cache:
+                try:
+                    project = things.get(project_uuid)
+                    project_status_cache[project_uuid] = project.get('status') if project else None
+                except Exception:
+                    project_status_cache[project_uuid] = None
+            if project_status_cache[project_uuid] == 'someday':
+                continue
         filtered.append(todo)
     return filtered
 
