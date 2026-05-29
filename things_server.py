@@ -1,5 +1,6 @@
 from typing import List
 import logging
+import time
 import things
 from fastmcp import FastMCP
 from formatters import format_todo, format_project, format_area, format_tag
@@ -53,6 +54,49 @@ def filter_someday(todos, include_someday: bool = False, apply_project_filter: b
     return result
 
 
+def _find_recent_by_title(title: str, kind: str):
+    """Find the most-recently-created item matching `title` exactly.
+
+    The Things URL scheme is fire-and-forget and returns no data, so after a
+    create we read back through things.py to resolve the new UUID.
+
+    Args:
+        title: Exact title to match
+        kind: "to-do" or "project"
+
+    Returns:
+        The matching item dict with the max `created` timestamp, or None.
+    """
+    try:
+        if kind == 'project':
+            items = things.projects() or []
+        else:
+            items = things.tasks(type='to-do', status='incomplete') or []
+    except Exception:
+        return None
+    matches = [i for i in items if i.get('title') == title]
+    if not matches:
+        return None
+    return max(matches, key=lambda i: i.get('created') or '')
+
+
+def _poll_for_uuid(title: str, kind: str, timeout: float = 1.5, interval: float = 0.1):
+    """Poll things.py for a just-created item, returning its UUID once found.
+
+    Covers the async write race after firing a Things URL: retries roughly
+    every `interval` seconds for up to `timeout` seconds, returning as soon as
+    a match appears. Returns None if not found within the window.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        item = _find_recent_by_title(title, kind)
+        if item:
+            return item.get('uuid')
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(interval)
+
+
 # List view tools
 @mcp.tool
 async def get_inbox() -> str:
@@ -64,11 +108,12 @@ async def get_inbox() -> str:
     return "\n\n---\n\n".join(formatted_todos)
 
 @mcp.tool
-async def get_today(include_someday: bool = False) -> str:
+async def get_today(include_someday: bool = False, brief: bool = False) -> str:
     """Get todos due today
 
     Args:
         include_someday: Include effectively-Someday items (default False = excluded)
+        brief: Lean output for reviews — truncated notes, verbose fields omitted (default False)
     """
     todos = things.today(include_items=True)
     if not todos:
@@ -77,15 +122,16 @@ async def get_today(include_someday: bool = False) -> str:
     todos = filter_someday(todos, include_someday)
     if not todos:
         return "No items found"
-    formatted_todos = [format_todo(todo) for todo in todos]
+    formatted_todos = [format_todo(todo, brief=brief) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
 
 @mcp.tool
-async def get_upcoming(include_someday: bool = False) -> str:
+async def get_upcoming(include_someday: bool = False, brief: bool = False) -> str:
     """Get upcoming todos
 
     Args:
         include_someday: Include effectively-Someday items (default False = excluded)
+        brief: Lean output for reviews — truncated notes, verbose fields omitted (default False)
     """
     todos = things.upcoming(include_items=True)
     if not todos:
@@ -94,15 +140,16 @@ async def get_upcoming(include_someday: bool = False) -> str:
     todos = filter_someday(todos, include_someday)
     if not todos:
         return "No items found"
-    formatted_todos = [format_todo(todo) for todo in todos]
+    formatted_todos = [format_todo(todo, brief=brief) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
 
 @mcp.tool
-async def get_anytime(include_someday: bool = False) -> str:
+async def get_anytime(include_someday: bool = False, brief: bool = False) -> str:
     """Get todos from Anytime list
 
     Args:
         include_someday: Include effectively-Someday items (default False = excluded)
+        brief: Lean output for reviews — truncated notes, verbose fields omitted (default False)
     """
     todos = things.anytime(include_items=True)
     if not todos:
@@ -111,17 +158,66 @@ async def get_anytime(include_someday: bool = False) -> str:
     todos = filter_someday(todos, include_someday)
     if not todos:
         return "No items found"
-    formatted_todos = [format_todo(todo) for todo in todos]
+    formatted_todos = [format_todo(todo, brief=brief) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
 
 @mcp.tool
-async def get_someday() -> str:
-    """Get todos from Someday list"""
+async def get_someday(brief: bool = False) -> str:
+    """Get todos from Someday list
+
+    Args:
+        brief: Lean output for reviews — truncated notes, verbose fields omitted (default False)
+    """
     todos = things.someday(include_items=True)
     if not todos:
         return "No items found"
-    formatted_todos = [format_todo(todo) for todo in todos]
+    formatted_todos = [format_todo(todo, brief=brief) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
+
+@mcp.tool
+async def get_orphans(area: str = None, include_someday: bool = False, brief: bool = False) -> str:
+    """Get orphan to-dos — tasks sitting directly in an area with no parent project.
+
+    Orphans act as a second inbox: they live in an area but were never filed
+    under a project. Results are grouped under a header per area.
+
+    Args:
+        area: Optional area UUID to restrict to a single area
+        include_someday: Include own-start Someday items (default False = excluded).
+            The parent-project Someday filter is moot here — orphans have no project.
+        brief: Lean output for reviews — truncated notes, verbose fields omitted (default False)
+    """
+    todos = things.tasks(type='to-do', status='incomplete')
+    if not todos:
+        return "No orphans found"
+
+    # An orphan has no parent project but does belong to an area.
+    orphans = [t for t in todos if t.get('project') is None and t.get('area') is not None]
+    if area:
+        orphans = [t for t in orphans if t.get('area') == area]
+
+    # Only the own-start Someday filter applies (orphans have no project).
+    orphans = filter_someday(orphans, include_someday, apply_project_filter=False)
+    if not orphans:
+        return "No orphans found"
+
+    # Group by area, preserving first-seen order.
+    groups = {}
+    for t in orphans:
+        groups.setdefault(t.get('area'), []).append(t)
+
+    sections = []
+    for area_uuid, items in groups.items():
+        area_title = area_uuid
+        try:
+            a = things.get(area_uuid)
+            if a:
+                area_title = a.get('title', area_uuid)
+        except Exception:
+            pass
+        body = "\n\n---\n\n".join(format_todo(t, brief=brief) for t in items)
+        sections.append(f"# Area: {area_title}\n\n{body}")
+    return "\n\n===\n\n".join(sections)
 
 @mcp.tool
 async def get_logbook(period: str = "7d", limit: int = 50) -> str:
@@ -150,18 +246,20 @@ async def get_trash() -> str:
 
 # Basic operations
 @mcp.tool
-async def get_todos(project_uuid: str = None, include_items: bool = True, include_someday: bool = False) -> str:
+async def get_todos(project_uuid: str = None, include_items: bool = True, include_someday: bool = False, brief: bool = False) -> str:
     """Get todos from Things, optionally filtered by project
-    
+
     Args:
         project_uuid: Optional UUID of a specific project to get todos from
         include_items: Include checklist items
+        include_someday: Include effectively-Someday items (default False = excluded)
+        brief: Lean output for reviews — truncated notes, verbose fields omitted (default False)
     """
     if project_uuid:
         project = things.get(project_uuid)
         if not project or project.get('type') != 'project':
             return f"Error: Invalid project UUID '{project_uuid}'"
-    
+
     todos = things.todos(project=project_uuid, start=None, include_items=include_items)
     if not todos:
         return "No todos found"
@@ -171,8 +269,8 @@ async def get_todos(project_uuid: str = None, include_items: bool = True, includ
     todos = filter_someday(todos, include_someday, apply_project_filter=False)
     if not todos:
         return "No todos found"
-    
-    formatted_todos = [format_todo(todo) for todo in todos]
+
+    formatted_todos = [format_todo(todo, brief=brief) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
 
 @mcp.tool
@@ -277,10 +375,11 @@ async def search_advanced(
     tag: str = None,
     area: str = None,
     type: str = None,
-    include_someday: bool = False
+    include_someday: bool = False,
+    brief: bool = False
 ) -> str:
     """Advanced todo search with multiple filters
-    
+
     Args:
         status: Filter by todo status (incomplete, completed, canceled)
         start_date: Filter by start date (YYYY-MM-DD)
@@ -289,6 +388,7 @@ async def search_advanced(
         area: Filter by area UUID
         type: Filter by item type (to-do, project, heading)
         include_someday: Include effectively-Someday items (default False = excluded)
+        brief: Lean output for reviews — truncated notes, verbose fields omitted (default False)
     """
     search_params = {}
     if status:
@@ -303,8 +403,17 @@ async def search_advanced(
         search_params["area"] = area
     if type:
         search_params["type"] = type
-    
-    todos = things.todos(include_items=True, **search_params)
+
+    # things.todos() injects type='to-do' internally, so passing `type` to it
+    # raises "multiple values for keyword argument 'type'". When the caller
+    # supplies a type, route through things.tasks() instead (defaulting to
+    # incomplete status to preserve things.todos()'s default behavior).
+    if type:
+        task_params = dict(search_params)
+        task_params.setdefault("status", "incomplete")
+        todos = things.tasks(include_items=True, **task_params)
+    else:
+        todos = things.todos(include_items=True, **search_params)
     if not todos:
         return "No matching todos found"
 
@@ -312,8 +421,8 @@ async def search_advanced(
     todos = filter_someday(todos, include_someday)
     if not todos:
         return "No matching todos found"
-    
-    formatted_todos = [format_todo(todo) for todo in todos]
+
+    formatted_todos = [format_todo(todo, brief=brief) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
 
 # Recent items
@@ -372,7 +481,11 @@ async def add_todo(
         heading_id=heading_id
     )
     url_scheme.execute_url(url)
-    return f"Created new todo: {title}"
+    # The URL scheme returns nothing; read back through things.py to resolve the UUID.
+    uuid = _poll_for_uuid(title, "to-do")
+    if uuid:
+        return f"Created new todo: {title} (uuid: {uuid})"
+    return f"Created new todo: {title} (uuid: not resolved — verify in Things)"
 
 @mcp.tool
 async def add_project(
@@ -408,7 +521,11 @@ async def add_project(
         todos=todos
     )
     url_scheme.execute_url(url)
-    return f"Created new project: {title}"
+    # The URL scheme returns nothing; read back through things.py to resolve the UUID.
+    uuid = _poll_for_uuid(title, "project")
+    if uuid:
+        return f"Created new project: {title} (uuid: {uuid})"
+    return f"Created new project: {title} (uuid: not resolved — verify in Things)"
 
 @mcp.tool
 async def update_todo(
@@ -457,6 +574,66 @@ async def update_todo(
     )
     url_scheme.execute_url(url)
     return f"Updated todo with ID: {id}"
+
+@mcp.tool
+async def update_todos(
+    ids: List[str],
+    notes: str = None,
+    when: str = None,
+    deadline: str = None,
+    tags: List[str] = None,
+    completed: bool = None,
+    canceled: bool = None,
+    list: str = None,
+    list_id: str = None,
+    heading: str = None,
+    heading_id: str = None,
+    title: str = None
+) -> str:
+    """Apply the same update to multiple todos in Things (batch).
+
+    Mirrors update_todo but takes a list of ids and applies the identical
+    mutation to every one. Each id is fired independently; failures are
+    reported per-id rather than aborting the batch.
+
+    Args:
+        ids: List of todo IDs to update
+        notes: New notes
+        when: New schedule
+        deadline: New deadline
+        tags: New tags
+        completed: Mark as completed
+        canceled: Mark as canceled
+        list: The title of a project or area to move the to-dos into
+        list_id: The ID of a project or area to move the to-dos into (takes precedence over list)
+        heading: The heading title to move the to-dos under
+        heading_id: The heading ID to move the to-dos under (takes precedence over heading)
+        title: New title — rarely useful in batch (would set the same title on every id)
+    """
+    results = []
+    for todo_id in ids:
+        try:
+            url = url_scheme.update_todo(
+                id=todo_id,
+                title=title,
+                notes=notes,
+                when=when,
+                deadline=deadline,
+                tags=tags,
+                completed=completed,
+                canceled=canceled,
+                list=list,
+                list_id=list_id,
+                heading=heading,
+                heading_id=heading_id
+            )
+            url_scheme.execute_url(url)
+            results.append(f"✓ {todo_id}")
+        except Exception as e:
+            results.append(f"✗ {todo_id}: {e}")
+        # Tiny gap so Things doesn't drop rapid successive `open location` events.
+        time.sleep(0.05)
+    return "\n".join(results)
 
 @mcp.tool
 async def update_project(

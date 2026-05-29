@@ -37,21 +37,31 @@ def _calculate_age(date_str: str) -> str:
         years = days // 365
         return f"{years} year{'s' if years > 1 else ''} ago"
 
-def format_todo(todo: dict) -> str:
-    """Helper function to format a single todo into a readable string."""
+def format_todo(todo: dict, brief: bool = False) -> str:
+    """Helper function to format a single todo into a readable string.
+
+    Args:
+        todo: Todo dictionary to format
+        brief: When True, produce lean output for reviews — notes are
+            truncated to ~100 chars with an ellipsis and verbose fields
+            (Type, Status, raw Created/Modified timestamps, checklist) are
+            omitted. The minimum kept is title, uuid, area/project, start (list),
+            and age. Default False leaves the full output unchanged.
+    """
     logger.debug(f"Formatting todo: {todo}")
     todo_text = f"Title: {todo['title']}"
-    
+
     # Add UUID for reference
     todo_text += f"\nUUID: {todo['uuid']}"
-    
-    # Add type
-    todo_text += f"\nType: {todo['type']}"
-    
-    # Add status if present
-    if todo.get('status'):
-        todo_text += f"\nStatus: {todo['status']}"
-        
+
+    # Add type (full output only)
+    if not brief:
+        todo_text += f"\nType: {todo['type']}"
+
+        # Add status if present
+        if todo.get('status'):
+            todo_text += f"\nStatus: {todo['status']}"
+
     # Add start/list location
     if todo.get('start'):
         todo_text += f"\nList: {todo['start']}"
@@ -63,18 +73,20 @@ def format_todo(todo: dict) -> str:
         todo_text += f"\nDeadline: {todo['deadline']}"
     if todo.get('stop_date'):  # Completion date
         todo_text += f"\nCompleted: {todo['stop_date']}"
-    
-    # Add creation and modification dates
+
+    # Add creation date (full output only) and age
     if todo.get('created'):
-        todo_text += f"\nCreated: {todo['created']}"
+        if not brief:
+            todo_text += f"\nCreated: {todo['created']}"
         # Calculate age since creation
         try:
             age_text = _calculate_age(todo['created'])
             todo_text += f"\nAge: {age_text}"
         except (ValueError, TypeError):
             pass
-    
-    if todo.get('modified'):
+
+    # Add modification date (full output only)
+    if not brief and todo.get('modified'):
         todo_text += f"\nModified: {todo['modified']}"
         # Calculate time since last modification
         try:
@@ -82,11 +94,14 @@ def format_todo(todo: dict) -> str:
             todo_text += f"\nLast modified: {modified_age}"
         except (ValueError, TypeError):
             pass
-    
-    # Add notes if present
+
+    # Add notes if present (truncated in brief mode)
     if todo.get('notes'):
-        todo_text += f"\nNotes: {todo['notes']}"
-    
+        notes = todo['notes']
+        if brief and len(notes) > 100:
+            notes = notes[:100] + "…"
+        todo_text += f"\nNotes: {notes}"
+
     # Add project info if present
     if todo.get('project'):
         try:
@@ -118,8 +133,8 @@ def format_todo(todo: dict) -> str:
     if todo.get('tags'):
         todo_text += f"\nTags: {', '.join(todo['tags'])}"
     
-    # Add checklist if present and contains items
-    if isinstance(todo.get('checklist'), list):
+    # Add checklist if present and contains items (full output only)
+    if not brief and isinstance(todo.get('checklist'), list):
         todo_text += "\nChecklist:"
         for item in todo['checklist']:
             status = "✓" if item['status'] == 'completed' else "☐"
