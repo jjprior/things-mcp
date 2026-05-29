@@ -36,6 +36,23 @@ def filter_someday_project_tasks(todos):
     return [todo for todo in todos if todo.get('project') not in someday_project_ids]
 
 
+def filter_someday(todos, include_someday: bool = False, apply_project_filter: bool = True):
+    """Exclude effectively-Someday tasks unless include_someday=True (flag-in).
+
+    A task is effectively Someday if EITHER its own start list is 'Someday', OR
+    (when apply_project_filter) its parent project is a Someday project.
+
+    apply_project_filter is set False for explicit single-project drill-downs,
+    where the caller named the project and wants its contents regardless.
+    """
+    if include_someday:
+        return todos
+    result = [t for t in todos if t.get('start') != 'Someday']
+    if apply_project_filter:
+        result = filter_someday_project_tasks(result)
+    return result
+
+
 # List view tools
 @mcp.tool
 async def get_inbox() -> str:
@@ -47,39 +64,51 @@ async def get_inbox() -> str:
     return "\n\n---\n\n".join(formatted_todos)
 
 @mcp.tool
-async def get_today() -> str:
-    """Get todos due today"""
+async def get_today(include_someday: bool = False) -> str:
+    """Get todos due today
+
+    Args:
+        include_someday: Include effectively-Someday items (default False = excluded)
+    """
     todos = things.today(include_items=True)
     if not todos:
         return "No items found"
-    # Filter out tasks from Someday projects
-    todos = filter_someday_project_tasks(todos)
+    # Exclude Someday by default (flag-in via include_someday)
+    todos = filter_someday(todos, include_someday)
     if not todos:
         return "No items found"
     formatted_todos = [format_todo(todo) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
 
 @mcp.tool
-async def get_upcoming() -> str:
-    """Get upcoming todos"""
+async def get_upcoming(include_someday: bool = False) -> str:
+    """Get upcoming todos
+
+    Args:
+        include_someday: Include effectively-Someday items (default False = excluded)
+    """
     todos = things.upcoming(include_items=True)
     if not todos:
         return "No items found"
-    # Filter out tasks from Someday projects
-    todos = filter_someday_project_tasks(todos)
+    # Exclude Someday by default (flag-in via include_someday)
+    todos = filter_someday(todos, include_someday)
     if not todos:
         return "No items found"
     formatted_todos = [format_todo(todo) for todo in todos]
     return "\n\n---\n\n".join(formatted_todos)
 
 @mcp.tool
-async def get_anytime() -> str:
-    """Get todos from Anytime list"""
+async def get_anytime(include_someday: bool = False) -> str:
+    """Get todos from Anytime list
+
+    Args:
+        include_someday: Include effectively-Someday items (default False = excluded)
+    """
     todos = things.anytime(include_items=True)
     if not todos:
         return "No items found"
-    # Filter out tasks from Someday projects
-    todos = filter_someday_project_tasks(todos)
+    # Exclude Someday by default (flag-in via include_someday)
+    todos = filter_someday(todos, include_someday)
     if not todos:
         return "No items found"
     formatted_todos = [format_todo(todo) for todo in todos]
@@ -121,7 +150,7 @@ async def get_trash() -> str:
 
 # Basic operations
 @mcp.tool
-async def get_todos(project_uuid: str = None, include_items: bool = True) -> str:
+async def get_todos(project_uuid: str = None, include_items: bool = True, include_someday: bool = False) -> str:
     """Get todos from Things, optionally filtered by project
     
     Args:
@@ -134,6 +163,12 @@ async def get_todos(project_uuid: str = None, include_items: bool = True) -> str
             return f"Error: Invalid project UUID '{project_uuid}'"
     
     todos = things.todos(project=project_uuid, start=None, include_items=include_items)
+    if not todos:
+        return "No todos found"
+
+    # Drop items individually parked in Someday (flag-in via include_someday).
+    # Parent-project filter skipped: an explicit project query should show its contents.
+    todos = filter_someday(todos, include_someday, apply_project_filter=False)
     if not todos:
         return "No todos found"
     
@@ -241,7 +276,8 @@ async def search_advanced(
     deadline: str = None,
     tag: str = None,
     area: str = None,
-    type: str = None
+    type: str = None,
+    include_someday: bool = False
 ) -> str:
     """Advanced todo search with multiple filters
     
@@ -252,6 +288,7 @@ async def search_advanced(
         tag: Filter by tag
         area: Filter by area UUID
         type: Filter by item type (to-do, project, heading)
+        include_someday: Include effectively-Someday items (default False = excluded)
     """
     search_params = {}
     if status:
@@ -268,6 +305,11 @@ async def search_advanced(
         search_params["type"] = type
     
     todos = things.todos(include_items=True, **search_params)
+    if not todos:
+        return "No matching todos found"
+
+    # Exclude Someday by default (flag-in via include_someday)
+    todos = filter_someday(todos, include_someday)
     if not todos:
         return "No matching todos found"
     
