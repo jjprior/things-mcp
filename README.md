@@ -325,3 +325,7 @@ To review the MCP logs from Claude Desktop, run this in the Terminal:
 # Follow logs in real-time
 tail -n 20 -f ~/Library/Logs/Claude/mcp*.log
 ```
+
+## Behavior reference
+
+`docs/THINGS_MCP_HORCRUX.md` is the canonical description of how this server behaves (Someday handling, areas, conventions) and is synced by hand into the "Goals and Tasks" Claude project. Update it alongside behavior changes.
