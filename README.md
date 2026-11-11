@@ -245,6 +245,18 @@ After restarting your MCP client:
 
 ### Troubleshooting
 
+### "Data shared by Things and affiliated apps" pop-ups (macOS 27+)
+
+macOS 27 gates the Things database behind an App Data permission that is
+attributed to the executable that launched the MCP server — for Claude Code
+that is a versioned binary that changes path on every update, so every update
+used to prompt again. The server therefore reads a snapshot of the DB served by
+the launchd-managed `automation/things-server` (`/things-db.sqlite`, conditional
+GET on an ETag) into `~/Library/Caches/things-mcp/main.sqlite` and points
+things.py at it via `THINGSDB`. If that server is down, a cached snapshot is
+used (with a warning); with no cache it falls back to the live DB and macOS may
+prompt. Set `THINGS_SNAPSHOT_URL=` (empty) to disable the snapshot path.
+
 If it's not working:
 
 1. **Make sure Things 3 is installed and has been opened at least once**

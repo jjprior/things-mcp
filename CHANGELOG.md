@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Snapshot reads (macOS 27)**: things.py now reads a cached copy of the Things DB fetched from the local `things-server` (`http://localhost:8091/things-db.sqlite`) instead of the TCC-protected group container, so Claude Code updates no longer trigger "Data shared by Things" permission pop-ups. See `db_snapshot.py`; set `THINGS_SNAPSHOT_URL=` to read the live DB directly.
 - **Someday Project Filtering**: Tasks from Someday projects are now filtered out from Today, Upcoming, and Anytime views to match Things UI behavior
 - **Test Coverage**: Added 13 new tests for Someday filtering functionality
 

@@ -1,10 +1,13 @@
 from typing import List
 import logging
 import time
+import asyncio
 import things
 from fastmcp import FastMCP
+from fastmcp.server.middleware import Middleware, MiddlewareContext
 from formatters import format_todo, format_project, format_area, format_tag
 import url_scheme
+import db_snapshot
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -12,6 +15,22 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server
 mcp = FastMCP("Things")
+
+
+class SnapshotMiddleware(Middleware):
+    """Refresh the cached DB snapshot before every tool call (see db_snapshot.py).
+
+    One refresh per tool call: a 304 round-trip to localhost when Things has
+    not written anything, a ~5 MB download when it has. Keeps every things.*
+    read in the call off the TCC-protected group container.
+    """
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        await asyncio.to_thread(db_snapshot.refresh)
+        return await call_next(context)
+
+
+mcp.add_middleware(SnapshotMiddleware())
 
 
 # Helper function to filter out tasks from Someday projects
@@ -89,6 +108,7 @@ def _poll_for_uuid(title: str, kind: str, timeout: float = 1.5, interval: float 
     """
     deadline = time.monotonic() + timeout
     while True:
+        db_snapshot.refresh()  # the write landed after this call's snapshot was taken
         item = _find_recent_by_title(title, kind)
         if item:
             return item.get('uuid')
